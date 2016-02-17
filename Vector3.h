@@ -117,6 +117,7 @@ namespace SpatialTest
             case 2:
                 return(z);
         }
+		return x;
     }
     
     

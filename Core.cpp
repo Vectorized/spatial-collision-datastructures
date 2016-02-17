@@ -77,6 +77,7 @@
 #include "Octree.h"
 #include "LooseOctree.h"
 #include "Kdtree.h"
+#include "BVHSpatialStructure.h"
 
 #include "Vector3.h"
 
@@ -92,7 +93,7 @@ static float                                            g_f32RadiusMin = 1.25f;
 static float                                            g_f32RadiusMax = 7.25f;
 
 // [rad] Number of objects to generate
-static int                                              g_i32ObjectCount = 1000;
+static int                                              g_i32ObjectCount = 10000;
 
 // [rad] Used to assign unique ids to objects
 static int                                              g_i32LastId = 0;
@@ -126,7 +127,7 @@ static float                                            g_f32Fps = 0.0f;
 static int                                              g_i32ResetFps = 0;
 static float                                            g_f32MaxFps = 0.0f;
 
-static int                                              g_i32CurrentSpatial = 2;
+static int                                              g_i32CurrentSpatial = 8;
 static int                                              g_i32DrawBox = 1;
 static int                                              g_i32DrawAxis = 0;
 static int                                              g_i32ShowCollisionCount = 1;
@@ -135,7 +136,8 @@ static int                                              g_i32CurrentRebuild = 0;
 static int                                              g_i32Pause = 0;
 static int                                              g_i32OneFrame = 0;
 
-
+static GLuint dispList;
+static bool dispListInited = false;
 
 //--
 static void PrintText(const std::string& refString, int i32X, int i32Y);
@@ -274,8 +276,12 @@ static void CreateSpatialStructure()
             delete(g_pSpatialStruct);
             g_pSpatialStruct = new SpatialTest::KDTree(SpatialTest::Vector3(0.0f, 0.0f, 0.0f), 100.0f);
             break;
-          
-          
+			
+		case 8:
+			delete(g_pSpatialStruct);
+			g_pSpatialStruct = new SpatialTest::BVHSpatialStructure();
+			break;
+			
         default:
             return;
     }
@@ -509,7 +515,8 @@ static void RenderInfo()
     ssSerial.str("");
     ssSerial << "[6] Loose Octree / Loose Octree (Rebuild)    ";
     ssSerial << "[7] KD-Tree (SAH)    ";
-        
+    ssSerial << "[8] BVH    ";
+	
     sBuf = ssSerial.str();
     PrintText(sBuf, 20, 40);
     
@@ -601,8 +608,13 @@ static void RenderInfo()
                 ssSerial << "KD-Tree (SAH)";
             }
             break;
-            
-            
+			
+		case 8:
+		{
+			ssSerial << "BVH";
+		}
+			break;
+			
         default:
             ssSerial << "Unknown";
     }
@@ -716,146 +728,156 @@ static void RenderInfo()
 //--
 static void RenderScene()
 {
-    // [rad] Do object update / collision detection
-    Tick();
-
-    
-    
-    glClear(GL_COLOR_BUFFER_BIT);
-    
-    // [rad] Render text
-    RenderInfo();
-    
-    
-    // [rad] Rotate scene if necessary
-    glRotatef(g_f32RotationX, 1.0f, 0.0f, 0.0f);
-    g_f32RotationX = 0.0f;
-
-    glRotatef(g_f32RotationY, 0.0f, 1.0f, 0.0f);
-    g_f32RotationY = 0.0f;
-    
-    
-    // [rad] Render all objects
-    std::vector<SpatialTest::ISpatialObject*>::iterator iter_objects;
-    for(iter_objects = g_vecObjects.begin(); iter_objects != g_vecObjects.end(); iter_objects++)
-    {
-        glPushMatrix();
-        glTranslatef((*iter_objects)->VGetPosition().x, (*iter_objects)->VGetPosition().y,
-                        (*iter_objects)->VGetPosition().z);
-                        
-        
-        // [rad] Check if this object is colliding
-        if((*iter_objects)->VGetCollisionStatus())
-        {
-            glColor3f(1.0f, 0.0f, 0.0f);
-        }
-        else
-        {
-            glColor3f(1.0f, 1.0f, 1.0f);
-        }
-                        
-                        
-        // [rad] We'll use cubes to draw our spheres, since they require the
-        // least number of polygons
-        glutSolidCube((*iter_objects)->VGetRadius());
-        
-        glPopMatrix();
-    }
-    
-    
-    // [rad] Draw box (cube) if enabled
-    if(g_i32DrawBox)
-    {
-        glColor3f(1.0f, 1.0f, 1.0f);
-        
-        //glutWireCube(200.0f);
-        
-        
-        glEnable(GL_LINE_STIPPLE);
-        glLineStipple(5, 0x55555);    
-            
-        
-        glBegin(GL_LINE_STRIP);
-        
-            glVertex3f(-100.0f, 100.0f, -100.0f);
-            glVertex3f(100.0f, 100.0f, -100.0f);
-            glVertex3f(100.0f, 100.0f, 100.0f);
-            glVertex3f(-100.0f, 100.0f, 100.0f);
-            glVertex3f(-100.0f, 100.0f, -100.0f);
-        
-        glEnd();
-        
-        
-        glBegin(GL_LINE_STRIP);
-        
-            glVertex3f(-100.0f, -100.0f, -100.0f);
-            glVertex3f(100.0f, -100.0f, -100.0f);
-            glVertex3f(100.0f, -100.0f, 100.0f);
-            glVertex3f(-100.0f, -100.0f, 100.0f);
-            glVertex3f(-100.0f, -100.0f, -100.0f);
-        
-        glEnd();
-            
-                    
-        glBegin(GL_LINES);
-        
-            glVertex3f(-100.0f, 100.0f, 100.0f);
-            glVertex3f(-100.0f, -100.0f, 100.0f);
-            
-            glVertex3f(-100.0f, 100.0f, -100.0f);
-            glVertex3f(-100.0f, -100.0f, -100.0f);
-            
-            glVertex3f(100.0f, 100.0f, -100.0f);
-            glVertex3f(100.0f, -100.0f, -100.0f);
-            
-            glVertex3f(100.0f, 100.0f, 100.0f);
-            glVertex3f(100.0f, -100.0f, 100.0f);
-        
-        glEnd();
-        
-        
-        glDisable(GL_LINE_STIPPLE);
-    }
-    
-    
-    // [rad] Draw axis
-    if(g_i32DrawAxis)
-    {
-        glColor3f(1.0f, 1.0f, 1.0f);
-        
-        
-        glEnable(GL_LINE_STIPPLE);
-        glLineStipple(5, 0x55555);
-
-        
-        glBegin(GL_LINES);
-
-            glVertex3f(-150.0f, 0.0f, 0.0f);
-            glVertex3f(150.0f, 0.0f, 0.0f);
-
-            glVertex3f(0.0f, -150.0f, 0.0f);
-            glVertex3f(0.0f, 150.0f, 0.0f);
-            
-            glVertex3f(0.0f, 0.0f, -150.0f);
-            glVertex3f(0.0f, 0.0f, 150.0f);
-    
-        glEnd();
-        
-        
-        glDisable(GL_LINE_STIPPLE);
-    }
-    
-    
-    // [rad] Swap double buffer
-    glutSwapBuffers();
+	// [rad] Do object update / collision detection
+	Tick();
+	
+	
+	
+	glClear(GL_COLOR_BUFFER_BIT);
+	
+	if (!dispListInited) {
+		dispList = glGenLists(1);
+		glNewList(dispList, GL_COMPILE);
+		glutSolidCube(1.);
+		glEndList();
+		dispListInited = true;
+	}
+	
+	// [rad] Render text
+	RenderInfo();
+	
+	
+	// [rad] Rotate scene if necessary
+	glRotatef(g_f32RotationX, 1.0f, 0.0f, 0.0f);
+	g_f32RotationX = 0.0f;
+	
+	glRotatef(g_f32RotationY, 0.0f, 1.0f, 0.0f);
+	g_f32RotationY = 0.0f;
+	
+	
+	// [rad] Render all objects
+	std::vector<SpatialTest::ISpatialObject*>::iterator iter_objects;
+	for(iter_objects = g_vecObjects.begin(); iter_objects != g_vecObjects.end(); iter_objects++)
+	{
+		glPushMatrix();
+		float scale = (*iter_objects)->VGetRadius();
+		glTranslatef((*iter_objects)->VGetPosition().x, (*iter_objects)->VGetPosition().y,
+					 (*iter_objects)->VGetPosition().z);
+		
+		
+		// [rad] Check if this object is colliding
+		if((*iter_objects)->VGetCollisionStatus())
+		{
+			glColor3f(1.0f, 0.0f, 0.0f);
+		}
+		else
+		{
+			glColor3f(1.0f, 1.0f, 1.0f);
+		}
+		
+		
+		// [rad] We'll use cubes to draw our spheres, since they require the
+		// least number of polygons
+		glScalef(scale, scale, scale);
+		
+		glCallList(dispList);
+		
+		glPopMatrix();
+	}
+	
+	
+	// [rad] Draw box (cube) if enabled
+	if(g_i32DrawBox)
+	{
+		glColor3f(1.0f, 1.0f, 1.0f);
+		
+		//glutWireCube(200.0f);
+		
+		
+		glEnable(GL_LINE_STIPPLE);
+		glLineStipple(5, 0x55555);
+		
+		
+		glBegin(GL_LINE_STRIP);
+		
+		glVertex3f(-100.0f, 100.0f, -100.0f);
+		glVertex3f(100.0f, 100.0f, -100.0f);
+		glVertex3f(100.0f, 100.0f, 100.0f);
+		glVertex3f(-100.0f, 100.0f, 100.0f);
+		glVertex3f(-100.0f, 100.0f, -100.0f);
+		
+		glEnd();
+		
+		
+		glBegin(GL_LINE_STRIP);
+		
+		glVertex3f(-100.0f, -100.0f, -100.0f);
+		glVertex3f(100.0f, -100.0f, -100.0f);
+		glVertex3f(100.0f, -100.0f, 100.0f);
+		glVertex3f(-100.0f, -100.0f, 100.0f);
+		glVertex3f(-100.0f, -100.0f, -100.0f);
+		
+		glEnd();
+		
+		
+		glBegin(GL_LINES);
+		
+		glVertex3f(-100.0f, 100.0f, 100.0f);
+		glVertex3f(-100.0f, -100.0f, 100.0f);
+		
+		glVertex3f(-100.0f, 100.0f, -100.0f);
+		glVertex3f(-100.0f, -100.0f, -100.0f);
+		
+		glVertex3f(100.0f, 100.0f, -100.0f);
+		glVertex3f(100.0f, -100.0f, -100.0f);
+		
+		glVertex3f(100.0f, 100.0f, 100.0f);
+		glVertex3f(100.0f, -100.0f, 100.0f);
+		
+		glEnd();
+		
+		
+		glDisable(GL_LINE_STIPPLE);
+	}
+	
+	
+	// [rad] Draw axis
+	if(g_i32DrawAxis)
+	{
+		glColor3f(1.0f, 1.0f, 1.0f);
+		
+		
+		glEnable(GL_LINE_STIPPLE);
+		glLineStipple(5, 0x55555);
+		
+		
+		glBegin(GL_LINES);
+		
+		glVertex3f(-150.0f, 0.0f, 0.0f);
+		glVertex3f(150.0f, 0.0f, 0.0f);
+		
+		glVertex3f(0.0f, -150.0f, 0.0f);
+		glVertex3f(0.0f, 150.0f, 0.0f);
+		
+		glVertex3f(0.0f, 0.0f, -150.0f);
+		glVertex3f(0.0f, 0.0f, 150.0f);
+		
+		glEnd();
+		
+		
+		glDisable(GL_LINE_STIPPLE);
+	}
+	
+	
+	// [rad] Swap double buffer
+	glutSwapBuffers();
 }
-
 
 
 //--
 static void SetupRC()
 {
-    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 
@@ -866,20 +888,20 @@ static void ChangeSize(GLsizei w, GLsizei h)
     // [rad] Store new size
     g_i32ScreenWidth = w;
     g_i32ScreenHeight = h;
-    
-    
+	
+	
     GLfloat range = 200.0f;
-    
+	
     if(!h)
     {
         h = 1;
     }
-    
+	
     glViewport(0, 0, w, h);
-    
+	
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    
+	
     if(w <= h)
     {
         glOrtho(-range, range, -range * h / w, range * h / w, -range, range);
@@ -888,7 +910,7 @@ static void ChangeSize(GLsizei w, GLsizei h)
     {
         glOrtho(-range * w / h, range * w /h, -range, range, -range, range);
     }
-    
+	
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 }
@@ -897,9 +919,11 @@ static void ChangeSize(GLsizei w, GLsizei h)
 //--
 static void KeyboardNormal(unsigned char u8Key, int i32X, int i32Y)
 {
+	if (u8Key == 27) exit(0);
+
     int i32Value = u8Key - 48;
-    
-    if(i32Value >= 1 && i32Value <= 7)
+	
+    if(i32Value >= 1 && i32Value <= 8)
     {
         if(i32Value == g_i32CurrentSpatial)
         {
